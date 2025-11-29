@@ -1,0 +1,5 @@
+{
+  "name": "Copy of LaTeX to Word Bridge",
+  "description": "A web-based tool to convert LaTeX equations into MS Word-compatible MathML, featuring AI-powered LaTeX generation and error fixing.",
+  "requestFramePermissions": []
+}
