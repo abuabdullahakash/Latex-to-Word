@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { LatexEditor } from './components/LatexEditor';
 import { InputGenerator } from './components/InputGenerator';
@@ -108,8 +107,15 @@ const App: React.FC = () => {
     document.getElementById('latex-editor-section')?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // --- SAFE MATHML GENERATION (Prevents Crash) ---
   const mathML = useMemo(() => {
-    return latexToMathML(latex);
+    try {
+      if (!latex) return "";
+      return latexToMathML(latex);
+    } catch (error) {
+      console.warn("MathML generation failed temporarily", error);
+      return ""; // Returns empty string instead of crashing
+    }
   }, [latex]);
 
   useEffect(() => {
@@ -123,11 +129,18 @@ const App: React.FC = () => {
     setNotification({ id: Date.now().toString(), message, type });
   };
 
+  // --- HELPER TO CLEAN API OUTPUT ---
+  const cleanLatexOutput = (text: string) => {
+    // Removes ```latex and ``` markers that cause crashes
+    return text.replace(/```latex/gi, '').replace(/```/g, '').trim();
+  };
+
   const handleGenerate = async (prompt: string, image: File | null) => {
     if (!prompt.trim() && !image) return;
     
     try {
       setIsProcessing(true);
+      setLatex(""); // Reset state to prevent conflict
       let generated = "";
 
       if (image) {
@@ -150,8 +163,11 @@ const App: React.FC = () => {
         generated = await generateLatexFromDescription(prompt);
       }
 
-      setLatex(generated);
-      addToHistory(prompt || "Image Generation", generated);
+      // Clean the output before setting state
+      const safeLatex = cleanLatexOutput(generated);
+      
+      setLatex(safeLatex);
+      addToHistory(prompt || "Image Generation", safeLatex);
       showToast("Formula Generated Successfully!", "success");
     } catch (error) {
       console.error(error);
@@ -191,7 +207,8 @@ const App: React.FC = () => {
     try {
       setIsProcessing(true);
       const result = await fixBrokenLatex(latex);
-      setLatex(result.latex);
+      const safeLatex = cleanLatexOutput(result.latex);
+      setLatex(safeLatex);
       showToast("Fixed LaTeX code!", "success");
       setExplanation(result.explanation);
     } catch (error) {
