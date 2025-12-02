@@ -2,28 +2,22 @@ import temml from 'temml';
 
 /**
  * Replaces HTML named entities with XML-safe numeric entities.
- * Word/OnlyOffice XML parsers often fail on entities like &nbsp; or &infty; 
- * because they are not defined in standard XML.
  */
 const sanitizeMathML = (mathml: string): string => {
-  // 1. Ensure the math tag has the correct namespace
   let cleanMath = mathml;
   if (!cleanMath.includes('xmlns="http://www.w3.org/1998/Math/MathML"')) {
     cleanMath = cleanMath.replace('<math', '<math xmlns="http://www.w3.org/1998/Math/MathML"');
   }
 
-  // 2. Replace common named entities with numeric equivalents or safe characters
-  // This list can be expanded, but these are common culprits in MathML
   const entityMap: Record<string, string> = {
     '&nbsp;': '&#160;',
     '&thinsp;': '&#8201;',
     '&ensp;': '&#8194;',
     '&emsp;': '&#8195;',
-    '&af;': '&#8289;', // ApplyFunction
-    '&it;': '&#8290;', // InvisibleTimes
+    '&af;': '&#8289;',
+    '&it;': '&#8290;',
     '&ApplyFunction;': '&#8289;',
     '&InvisibleTimes;': '&#8290;',
-    // Add basic XML entities just in case, though usually handled
     '&lt;': '&#60;',
     '&gt;': '&#62;',
     '&amp;': '&#38;',
@@ -31,32 +25,59 @@ const sanitizeMathML = (mathml: string): string => {
     '&apos;': '&#39;'
   };
 
-  // Replace named entities like &name; with numeric versions
-  // We use a regex to find &...; patterns that are NOT numeric (&#...;)
   cleanMath = cleanMath.replace(/&([a-zA-Z]+);/g, (match) => {
-    return entityMap[match] || match; // Return mapped value or keep original if unknown
+    return entityMap[match] || match;
   });
 
   return cleanMath;
 };
 
 /**
+ * Cleans raw LaTeX input from Gemini to prevent crashes.
+ * Removes Markdown code blocks, extra dollars, etc.
+ */
+const cleanRawLatex = (latex: string): string => {
+  if (!latex) return "";
+  
+  // 1. Remove Markdown code blocks (```latex ... ```)
+  let clean = latex.replace(/```latex/gi, '').replace(/```/g, '');
+  
+  // 2. Remove "Here is the equation:" type text if mixed (naive check)
+  // (Ideally, we just strip the delimiters)
+  
+  // 3. Remove standard LaTeX delimiters commonly returned by AI
+  clean = clean.replace(/^\\\[/, '').replace(/\\\]$/, ''); // Remove \[ ... \]
+  clean = clean.replace(/^\$\$/, '').replace(/\$\$$/, ''); // Remove $$ ... $$
+  clean = clean.replace(/^\$/, '').replace(/\$/, '');      // Remove $ ... $
+
+  return clean.trim();
+};
+
+/**
  * Converts a LaTeX string to MathML markup suitable for MS Word.
+ * NOW CRASH-PROOF!
  */
 export const latexToMathML = (latex: string): string => {
+  if (!latex) return "";
+
   try {
-    // Temml is a lightweight library for LaTeX to MathML conversion.
-    const mathml = temml.renderToString(latex, {
+    // Step 1: Clean the input first
+    const safeLatex = cleanRawLatex(latex);
+
+    // Step 2: Render with error handling
+    const mathml = temml.renderToString(safeLatex, {
       displayMode: true,
-      xml: true, // Generate XML-compatible output
-      trust: true, // Allow more commands
+      xml: true,
+      trust: true,
+      errorColor: '#cc0000', // Show error in red instead of crashing
+      throwOnError: false    // CRITICAL: This prevents the white screen crash
     });
     
-    // Post-process to ensure strict XML validity for Word
     return sanitizeMathML(mathml);
   } catch (e) {
     console.error("MathML conversion failed", e);
-    return "";
+    // Return a safe placeholder so the app doesn't die
+    return `<math xmlns="http://www.w3.org/1998/Math/MathML"><mtext style="color:red">Error parsing LaTeX</mtext></math>`;
   }
 };
 
@@ -66,9 +87,6 @@ export const latexToMathML = (latex: string): string => {
 export const copyToWordClipboard = async (mathml: string, originalLatex: string): Promise<void> => {
   if (!mathml) throw new Error("No MathML to copy");
 
-  // MS Word is very picky about the clipboard format.
-  // We use a specific HTML wrapper that Word recognizes as "Source: Word".
-  // NOTE: The <title> tag MUST be empty or absent to prevent "Equation" text from appearing in Word.
   const htmlContent = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
@@ -101,7 +119,7 @@ ${mathml}
 };
 
 /**
- * Downloads the MathML as a .docx compatible file (using HTML trick).
+ * Downloads the MathML as a .docx compatible file.
  */
 export const downloadAsDocFile = (mathml: string, filename: string = 'equation') => {
     const htmlContent = `
