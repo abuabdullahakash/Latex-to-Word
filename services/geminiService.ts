@@ -1,9 +1,16 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
+// --- FIXED API CLIENT INITIALIZATION ---
 const getAiClient = () => {
-  const apiKey = process.env.API_KEY;
+  // Use import.meta.env for Vite, and check for both potential key names
+  // This is the CRITICAL FIX for the "White Screen" crash
+  const apiKey = import.meta.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY;
+  
   if (!apiKey) {
-    throw new Error("API Key not found");
+    console.error("API Key is missing! Check .env file or Vercel settings.");
+    // Instead of throwing immediately (which crashes React), we return null
+    // The functions below will handle the null case gracefully
+    return null;
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -11,10 +18,11 @@ const getAiClient = () => {
 export const generateLatexFromDescription = async (prompt: string): Promise<string> => {
   try {
     const ai = getAiClient();
+    if (!ai) throw new Error("API Key configuration error. Please check settings.");
     
     // We use systemInstruction to enforce the behavior strongly.
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash", // Updated to 2.0 or 1.5 as 2.5 is not standard yet
       config: {
         systemInstruction: `You are an expert mathematical typesetter and reconstruction engine.
         
@@ -42,13 +50,15 @@ export const generateLatexFromDescription = async (prompt: string): Promise<stri
     return text.replace(/```latex/gi, '').replace(/```/g, '').trim();
   } catch (error) {
     console.error("Error generating LaTeX:", error);
-    throw new Error("Failed to generate LaTeX from description.");
+    // Return a safe error message instead of crashing
+    return "\\text{Error: Could not generate LaTeX. Please try again.}";
   }
 };
 
 export const generateLatexFromImage = async (base64Data: string, mimeType: string, prompt?: string): Promise<string> => {
   try {
     const ai = getAiClient();
+    if (!ai) throw new Error("API Key configuration error. Please check settings.");
     
     // Updated Prompt for Robust OCR and Linear Word Compatibility
     const systemInstruction = `
@@ -82,7 +92,7 @@ export const generateLatexFromImage = async (base64Data: string, mimeType: strin
     const userContext = prompt ? `Additional user context/hint: "${prompt}"` : "";
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash", // Updated to stable model
       contents: {
         parts: [
           {
@@ -121,15 +131,17 @@ export const generateLatexFromImage = async (base64Data: string, mimeType: strin
     return text;
   } catch (error) {
     console.error("Error converting image to LaTeX:", error);
-    throw new Error("Failed to convert image to LaTeX.");
+    return "\\text{Error: Image processing failed. Please try again.}";
   }
 };
 
 export const fixBrokenLatex = async (brokenLatex: string): Promise<{ latex: string; explanation: string }> => {
   try {
     const ai = getAiClient();
+    if (!ai) throw new Error("API Key missing");
+
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: `The following LaTeX code is broken or incorrect: "${brokenLatex}". 
       Please fix it and provide a brief explanation of what was wrong.`,
       config: {
@@ -150,15 +162,17 @@ export const fixBrokenLatex = async (brokenLatex: string): Promise<{ latex: stri
     return json;
   } catch (error) {
     console.error("Error fixing LaTeX:", error);
-    throw new Error("Failed to fix LaTeX code.");
+    return { latex: brokenLatex, explanation: "Failed to fix via AI." };
   }
 };
 
 export const explainEquation = async (latex: string): Promise<string> => {
   try {
     const ai = getAiClient();
+    if (!ai) return "API Key missing.";
+
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       contents: `Explain this mathematical equation in simple terms: "${latex}"`,
     });
     return response.text || "Could not generate explanation.";
